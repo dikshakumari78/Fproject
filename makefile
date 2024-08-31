@@ -1,27 +1,26 @@
-# Compiler
+# Compiler and flags
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -pthread
+CXXFLAGS = -std=c++11 -Wall -Wextra -g
 
 # Target executable
-TARGET = thread_pool_cpp
+TARGET = threadpool
 
 # Source files
-SRCS = thread_pool.cpp
+SRCS = main.cpp threadpool.cpp
 
 # Object files
 OBJS = $(SRCS:.cpp=.o)
 
-# Build the target executable
+# Build the target
+all: $(TARGET)
+
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
 
-# Build object files
+# Rule to build object files
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Clean up build artifacts
+# Clean object files and executable
 clean:
-	rm -f $(TARGET) $(OBJS)
-
-# Phony targets
-.PHONY: clean
+	rm -f $(OBJS) $(TARGET)
