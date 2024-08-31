@@ -1,0 +1,137 @@
+#include <pthread.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <vector>
+#include <queue>
+#include <functional>
+#include <stdexcept>
+
+// Task class
+class Task {
+public:
+    std::function<void(void*)> function;
+    void *arg;
+};
+
+// TaskQueue class
+class TaskQueue {
+private:
+    std::queue<Task> queue;
+    pthread_mutex_t lock;
+    pthread_cond_t notify;
+    bool shutdown;
+
+public:
+    TaskQueue() : shutdown(false) {
+        if (pthread_mutex_init(&lock, NULL) != 0) {
+            throw std::runtime_error("Failed to initialize mutex");
+        }
+        if (pthread_cond_init(&notify, NULL) != 0) {
+            pthread_mutex_destroy(&lock);
+            throw std::runtime_error("Failed to initialize condition variable");
+        }
+    }
+
+    ~TaskQueue() {
+        pthread_mutex_destroy(&lock);
+        pthread_cond_destroy(&notify);
+    }
+
+    void add_task(const Task& task) {
+        pthread_mutex_lock(&lock);
+        if (!shutdown) {
+            queue.push(task);
+            pthread_cond_signal(&notify);
+        }
+        pthread_mutex_unlock(&lock);
+    }
+
+    bool get_task(Task& task) {
+        pthread_mutex_lock(&lock);
+        while (queue.empty() && !shutdown) {
+            pthread_cond_wait(&notify, &lock);
+        }
+        if (shutdown) {
+            pthread_mutex_unlock(&lock);
+            return false;
+        }
+        task = queue.front();
+        queue.pop();
+        pthread_mutex_unlock(&lock);
+        return true;
+    }
+
+    void set_shutdown() {
+        pthread_mutex_lock(&lock);
+        shutdown = true;
+        pthread_cond_broadcast(&notify);
+        pthread_mutex_unlock(&lock);
+    }
+};
+
+// ThreadPool class
+class ThreadPool {
+private:
+    std::vector<pthread_t> threads;
+    TaskQueue taskQueue;
+
+    static void* thread_pool_worker(void* arg) {
+        ThreadPool* pool = static_cast<ThreadPool*>(arg);
+        Task task;
+        while (pool->taskQueue.get_task(task)) {
+            task.function(task.arg);
+        }
+        return NULL;
+    }
+
+public:
+    ThreadPool(int threadCount) {
+        for (int i = 0; i < threadCount; ++i) {
+            pthread_t thread;
+            if (pthread_create(&thread, NULL, thread_pool_worker, this) != 0) {
+                throw std::runtime_error("Failed to create thread");
+            }
+            threads.push_back(thread);
+        }
+    }
+
+    ~ThreadPool() {
+        taskQueue.set_shutdown();
+        for (auto& thread : threads) {
+            pthread_join(thread, NULL);
+        }
+    }
+
+    void add_task(const std::function<void(void*)>& func, void* arg) {
+        Task task = { func, arg };
+        taskQueue.add_task(task);
+    }
+};
+
+// Example task function
+void example_task(void* arg) {
+    int num = *static_cast<int*>(arg);
+    printf("Task %d is being processed.\n", num);
+    sleep(1); // Simulate task processing
+    free(arg); // Free allocated memory
+}
+
+int main() {
+    try {
+        ThreadPool pool(4); // Create a pool with 4 threads
+
+        for (int i = 0; i < 10; ++i) {
+            int* arg = static_cast<int*>(malloc(sizeof(int)));
+            *arg = i + 1;
+            pool.add_task(example_task, arg);
+        }
+
+        sleep(5); // Wait for tasks to complete
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Error: %s\n", e.what());
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
