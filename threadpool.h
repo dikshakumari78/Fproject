@@ -1,46 +1,47 @@
-// threadpool.h
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
 #include <pthread.h>
-#include <queue>
-#include <functional>
+#include <vector>
 
-// Task class
-class Task {
-public:
-    std::function<void(void*)> function;
+// Task structure
+struct Task {
+    void (*function)(void *);
     void *arg;
 };
 
-// TaskQueue class
+// TaskQueue class definition
 class TaskQueue {
+public:
+    TaskQueue(int size);
+    ~TaskQueue();
+
+    void add_task(void (*function)(void *), void *arg);
+    bool get_task(Task &task);
+    void shutdown_queue();
+
 private:
-    std::queue<Task> queue;
+    std::vector<Task> tasks;
+    int front, rear, task_count;
+    bool shutdown;
     pthread_mutex_t lock;
     pthread_cond_t notify;
-    bool shutdown;
-
-public:
-    TaskQueue();
-    ~TaskQueue();
-    void add_task(const Task& task);
-    bool get_task(Task& task);
-    void set_shutdown();
 };
 
-// ThreadPool class
+// ThreadPool class definition
 class ThreadPool {
-private:
-    std::vector<pthread_t> threads;
-    TaskQueue taskQueue;
-
-    static void* thread_pool_worker(void* arg);
-
 public:
-    ThreadPool(int threadCount);
+    ThreadPool(int thread_count, int queue_size);
     ~ThreadPool();
-    void add_task(const std::function<void(void*)>& func, void* arg);
+
+    void add_task(void (*function)(void *), void *arg);
+
+private:
+    static void *thread_pool_worker(void *arg);
+
+    int thread_count;
+    std::vector<pthread_t> threads;
+    TaskQueue queue;
 };
 
 #endif // THREADPOOL_H
