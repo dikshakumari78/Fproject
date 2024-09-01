@@ -3,42 +3,63 @@
 #include <stdio.h>
 #include <unistd.h>
 
-// Task structure
-struct Task {
-    void (*function)(void *);
-    void *arg;
-};
-
-// TaskQueue class definition
-class ThreadPool::TaskQueue {
-public:
-    TaskQueue(int size);
-    ~TaskQueue();
-
-    void add_task(void (*function)(void *), void *arg);
-    bool get_task(Task &task);
-    void shutdown_queue();
-
-private:
-    std::vector<Task> tasks;
-    int front, rear, task_count;
-    bool shutdown;
-    pthread_mutex_t lock;
-    pthread_cond_t notify;
-};
-
-// Implementations of TaskQueue methods and ThreadPool methods here...
-
-// Example task function
-void example_task(void *arg) {
-    int num = *(int *)arg;
-    printf("Task %d is being processed.\n", num);
-    sleep(1); // Simulate task processing
+// TaskQueue implementation
+TaskQueue::TaskQueue(int size) : tasks(size), front(0), rear(0), task_count(size), shutdown(false) {
+    pthread_mutex_init(&lock, NULL);
+    pthread_cond_init(&notify, NULL);
 }
 
-// ThreadPool constructor and destructor implementations
+TaskQueue::~TaskQueue() {
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&notify);
+}
+
+void TaskQueue::add_task(void (*function)(void *), void *arg) {
+    pthread_mutex_lock(&lock);
+
+    if (shutdown) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+
+    tasks[rear].function = function;
+    tasks[rear].arg = arg;
+    rear = (rear + 1) % task_count;
+
+    pthread_cond_signal(&notify);
+    pthread_mutex_unlock(&lock);
+}
+
+bool TaskQueue::get_task(Task &task) {
+    pthread_mutex_lock(&lock);
+
+    while (front == rear && !shutdown) {
+        pthread_cond_wait(&notify, &lock);
+    }
+
+    if (shutdown) {
+        pthread_mutex_unlock(&lock);
+        return false;
+    }
+
+    task = tasks[front];
+    front = (front + 1) % task_count;
+
+    pthread_mutex_unlock(&lock);
+    return true;
+}
+
+void TaskQueue::shutdown_queue() {
+    pthread_mutex_lock(&lock);
+    shutdown = true;
+    pthread_cond_broadcast(&notify);
+    pthread_mutex_unlock(&lock);
+}
+
+// ThreadPool implementation
 ThreadPool::ThreadPool(int thread_count, int queue_size) : thread_count(thread_count), queue(queue_size) {
     threads.resize(thread_count);
+
     for (int i = 0; i < thread_count; i++) {
         pthread_create(&threads[i], NULL, thread_pool_worker, this);
     }
